@@ -1,0 +1,8 @@
+config BR2_PACKAGE_GULP
+	bool "gulp"
+	select BR2_PACKAGE_LIBPCAP
+	help
+	  Lossless Gigabit Remote Packet capture
+
+	  https://github.com/diarmuidcwc/gulp
+
