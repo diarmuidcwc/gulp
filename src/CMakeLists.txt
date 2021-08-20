@@ -5,5 +5,5 @@ set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS} -O2")
 
 add_executable(gulp gulp.c)
 target_link_libraries(gulp pthread pcap)
-install(TARGETS gulp DESTINATION bin)
+#install(TARGETS gulp DESTINATION bin)
 
