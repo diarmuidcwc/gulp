@@ -70,7 +70,7 @@
 
 #define _GNU_SOURCE
 #ifdef linux
-#include <syscall.h>
+#include <sys/syscall.h>
 #endif
 #include <unistd.h>
 #include <pthread.h>
@@ -90,7 +90,7 @@
 #include <limits.h>
 #include <sys/wait.h>
 
-#define gettid() syscall(__NR_gettid)	/* missing in headers? */
+//#define gettid() syscall(__NR_gettid)	/* missing in headers? */
 #define RINGSIZE 1024*1024*100	/* about 5 seconds of data at 200Mb/s */
 #define MAXPKT 16384		/* larger than any jumbogram */
 #define WRITESIZE 65536		/* usual write chunk size - must be 2^N */
