@@ -4,6 +4,7 @@
  * Because of its improved buffering and scheduling strategy, Gulp
  * should out-perform traditional capture programs such as tcpdump when
  * the goal is to capture and write to disk.  A 2.6GHz Intel core2duo CPU
+   fprintf(stdout, "%s: No CPU optimisation \n",progname);
  * running RHEL5 (linux 2.6.18) can capture and save to disk 1Gb/s
  * dropping 0 packets (for full-to-medium size packets).
  *
@@ -66,6 +67,15 @@
  * signalling between threads could eliminate the short sleeps when the
  * buffer is either full or empty but these seem to consume negligible
  * time so why bother.
+ *
+ */
+
+ /*
+1.4 - base
+1.4.1 - added use signal
+1.5 - with libpcap 0.9.8
+1.6 - added filter support back in
+1.6.1 - changed default filename to xxxxxx_000000.pcap
  */
 
 #define _GNU_SOURCE
@@ -91,13 +101,14 @@
 #include <sys/wait.h>
 
 //#define gettid() syscall(__NR_gettid)	/* missing in headers? */
+#define USE_SIGNAL  1  /* to exit cleanly  */
 #define RINGSIZE 1024*1024*100	/* about 5 seconds of data at 200Mb/s */
 #define MAXPKT 16384		/* larger than any jumbogram */
 #define WRITESIZE 65536		/* usual write chunk size - must be 2^N */
 #define GRE_HDRLEN 50		/* Cisco GRE encapsulation header size */
 #define SNAP_LEN 65535		/* apparently what tcpdump uses for -s 0 */
 #define READ_PRIO	-15	/* niceness value for Reader thread */
-#define WRITE_PRIO	10	/* niceness value for Writer thread */
+#define WRITE_PRIO	10 /* niceness value for Writer thread */
 #define READER_CPU	1	/* assign Reader thread to this CPU */
 #define WRITER_CPU	0	/* assign Writer thread to this CPU */
 #define POLL_USECS	1000	/* ring full/empty poll interval */
@@ -135,7 +146,7 @@ int  warn_buf_full = 1;		/* unless reading a file, warn if buf fills */
 pcap_t *handle = 0;		/* packet capture handle */
 struct pcap_stat pcs;		/* packet capture filter stats */
 int got_stats = 0;		/* capture stats have been obtained */
-char *id = "@(#) Gulp RCS $Revision: 1.58-crox $"; /* automatically maintained */
+char *id = "@(#) axnmem 1.6.1"; /* version details above */
 int  check_eth = 1;		/* check that we are capturing from an Ethernet device */
 int  would_block = 0;		/* for academic interest only */
 int  check_block = 0;		/* use select to see if writes would block */
@@ -194,7 +205,7 @@ append(char *ptr, int len, int bdry)
 	    memcpy(buf+end, ptr, len);
 	    }
 	else {				  /* append wraps */
-	    int c = ringsize-end;	
+	    int c = ringsize-end;
 	    memcpy(buf+end, ptr, c);
 	    memcpy(buf, ptr+c, len-c);
 	    }
@@ -264,7 +275,7 @@ got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 	    append((char *)&ph + sizeof(struct timeval),
 		   sizeof(struct pcap_pkthdr) - sizeof(struct timeval), 0);
 	    }
-	else 
+	else
 	    append((char *)&ph, sizeof(struct pcap_pkthdr), 0);
 	append((char *)packet+gre_hdrlen, ph.caplen, 1);
 	}
@@ -275,6 +286,7 @@ got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 void
 cleanup(int signo)
     {
+    fprintf(stderr, "Received SIGINT. Breaking pcaploop and cleaning-up");
     eof = 1;
     if (just_copy == 1 || got_stats) return;
 #ifndef JUSTCOPY
@@ -318,7 +330,7 @@ void *Reader(void *arg)
 	    progname, strerror(errno));
 	}
 #else
-    replace with equivalent code for your OS or delete and run less optimally
+  fprintf(stdout, "%s: No CPU optimisation \n",progname);
 #endif
 
 #ifdef USE_SIGNAL
@@ -329,7 +341,7 @@ void *Reader(void *arg)
     sa.sa_handler = cleanup;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;			/* allow signal to abort pcap read */
-    
+
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGPIPE, &sa, NULL);
 #endif /* USE_SIGNAL */
@@ -369,6 +381,7 @@ void *Reader(void *arg)
 	}
     else
 	handle = pcap_open_live(dev, d_snap_len, 1, 0, errbuf);
+  //pcap_set_immediate_mode(handle, 1);
     if (handle == NULL) {
 	fprintf(stderr, "%s: Couldn't open device %s: %s\n",
 	    progname, dev, errbuf);
@@ -436,8 +449,9 @@ void *Reader(void *arg)
 	    ignored);
 	}
     if (got_stats) {
-	(void)fprintf(stderr, "%d packets received by filter\n", pcs.ps_recv);
-	(void)fprintf(stderr, "%d packets dropped by kernel\n", pcs.ps_drop);
+	    (void)fprintf(stderr, "%d packets received by filter\n", pcs.ps_recv);
+        (void)fprintf(stderr, "%d packets dropped by kernel\n", pcs.ps_drop);
+        (void)fprintf(stderr, "%d packets dropped by interface or driver\n", pcs.ps_ifdrop);
 
 	/*
 	 * if packets dropped, check/warn if pcap socket buffer is too small
@@ -557,7 +571,7 @@ int newoutfile(char *dir, int num) {
         snprintf(ofile, sizeof(ofile), "%s/%s_%s.pcap", dir, oname, outstr);
 	}
     else {
-    	snprintf(ofile, sizeof(ofile), "%s/%s%03d.pcap", dir, oname, num);
+    	snprintf(ofile, sizeof(ofile), "%s/%s_%06d.pcap", dir, oname, num);
 	}
     int tmpfd = mkstemp(tfile);
     fchown(tmpfd, getuid(), -1);	/* in case running setuid */
@@ -607,9 +621,9 @@ void *Writer(void *arg)
 	    progname, strerror(errno));
 	}
 #else
-    replace with equivalent code for your OS or delete and run less optimally
+  fprintf(stdout, "%s: No CPU optimisation \n",progname);
 #endif /* CPU_SET */
-    
+
     if (geteuid()!=getuid()) {
 	while (!reader_ready) usleep(poll_usecs);
 	seteuid(getuid());		/* drop setuid privilege */
@@ -617,7 +631,7 @@ void *Writer(void *arg)
 
     if (tflag) {
 	if (max_files && max_files != 1000) {
-	    fprintf(stderr, "%s: -W will be set to 1000 because -t is also set\n", progname); 
+	    fprintf(stderr, "%s: -W will be set to 1000 because -t is also set\n", progname);
 	    }
 	max_files = 1000;
 	}
