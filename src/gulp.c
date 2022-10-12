@@ -759,6 +759,7 @@ int main(int argc, char *argv[], char *envp[])
     extern char *optarg;
     extern int optind;
     int bitmask;
+    bdry_time = time(NULL);
 
     start = end = eof = 0;
     progname = argv[0];
