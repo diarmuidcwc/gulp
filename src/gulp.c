@@ -1003,8 +1003,7 @@ int main(int argc, char *argv[], char *envp[])
 		}
 	    else {				/* puts stats on stderr */
 		fprintf(stderr,
-		    "fname: %s, pkts captured: %d, pkts dropped: %d, ring buf: %.1lf%%, max: %.1lf%%\n",
-            wfile,
+		    "pkts captured: %d, pkts dropped: %d, ring buf: %.1lf%%, max: %.1lf%%\n",
             captured,
 		    (drop_symb > 0 ? pcs.ps_drop : 0),
 		    100.0*(double)used/(double)(ringsize),
