@@ -77,6 +77,7 @@
 1.6 - added filter support back in
 1.6.1 - changed default filename to xxxxxx_000000.pcap
 1.7.0 - fixed small file at start of recording
+1.8.0 - add captured packet count and filename on status line
  */
 
 #define _GNU_SOURCE
@@ -147,7 +148,7 @@ int  warn_buf_full = 1;		/* unless reading a file, warn if buf fills */
 pcap_t *handle = 0;		/* packet capture handle */
 struct pcap_stat pcs;		/* packet capture filter stats */
 int got_stats = 0;		/* capture stats have been obtained */
-char *id = "@(#) axnmem 1.7.0"; /* version details above */
+char *id = "@(#) axnmem 1.8.0"; /* version details above */
 int  check_eth = 1;		/* check that we are capturing from an Ethernet device */
 int  would_block = 0;		/* for academic interest only */
 int  check_block = 0;		/* use select to see if writes would block */
@@ -1002,7 +1003,9 @@ int main(int argc, char *argv[], char *envp[])
 		}
 	    else {				/* puts stats on stderr */
 		fprintf(stderr,
-		    "pkts dropped: %d, ring buf: %.1lf%%, max: %.1lf%%\n",
+		    "fname: %s, pkts captured: %d, pkts dropped: %d, ring buf: %.1lf%%, max: %.1lf%%\n",
+            wfile,
+            captured,
 		    (drop_symb > 0 ? pcs.ps_drop : 0),
 		    100.0*(double)used/(double)(ringsize),
 		    100.0*(double)maxbuffered/(double)(ringsize));
