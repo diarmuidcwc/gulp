@@ -70,6 +70,32 @@
  *
  */
 
+/*
+	GULP_CH10
+	This is a modified version of gulp that is customized for recording ch10 files
+	This has to be run so that it only receives chapter 10 packets wrapped in GRE over 
+	ethernet packets.
+	
+	This application will be unwrap the GRE packets and record the raw ch10 files
+	There are no pcap headers or records just each ch10 file is appended to the open file
+
+	There are a few rules
+	1, First packet in the file has to be a chapter 10 TMATS file
+	2. Second packet has to be a time packet
+	3. A time packet has to be included at least at 1HZ
+
+	Rule#3 is enforced at system level but the BCU. It will generate the time packets
+	Rule#1 amd Rule2 are enforced by
+		- reading all the TMATS file into a RAM buffer 
+		- inspecting a specific offset into each packet and locating all time packets
+		- if a time packet is found then this is a file boundary
+		- at file boundaries the TMATS file is inserted followed by the time packet
+
+	This differs from the pcap implementation by creating a new file boundary in advance of 
+	writing a packet and by setting the file boundaries on time packets and not just any packet
+
+	TODO: Large TMATs files could cause RAM issues. This
+*/
  /*
 1.4 - base
 1.4.1 - added use signal
@@ -78,6 +104,7 @@
 1.6.1 - changed default filename to xxxxxx_000000.pcap
 1.7.0 - fixed small file at start of recording
 1.8.0 - add captured packet count and filename on status line
+2.0.0 - This is a modified version of gulp1.8. 
  */
 
 #define _GNU_SOURCE
@@ -163,7 +190,6 @@ char wfile[PATH_MAX];		/* output filename */
 char *oname = "pcap";		/* requested output file name */
 int  tflag = 0;			/* append timestamp to the file name */
 int  filec = 0;			/* output file number */
-struct pcap_file_header fh;	/* begins every pcap file */
 int  split_after = 10;		/* start new output file after # ringbufs */
 int  split_seconds = 0;		/* start new output file after # seconds */
 time_t bdry_time = 0;           /* packet capture output file open time */
@@ -173,8 +199,8 @@ int  volatile reader_ready = 0;	/* reader thread no longer needs root */
 char *zcmd = NULL;              /* processes each savefile using a specified command */
 int  zflag = 0;
 static void child_cleanup(int); /* to avoid zombies, see below */
-
-
+char *tmatsbuffer;           /* Tmats file is read in and stored in a buffer */
+ 
 /*
  * put data onto the end of global ring buffer "buf"
  */
@@ -290,7 +316,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 		ph.len -= FCS_LEN;
 		// Only spilt the files when aligned with a time packet
 		if (packet[OFFSET_TO_DATA_TYPE] == CH10_DATA_TYPE_TIME) {
-			//fprintf(stderr, "Received a time packet");
+			fprintf(stderr, "Received a time packet");
 			valid_file_boundary = 1;
 		} else {
 			valid_file_boundary = 0;
@@ -323,6 +349,7 @@ cleanup(int signo)
 #endif /* RHEL3 */
 #endif /* JUSTCOPY */
     }
+
 
 /*
  * This thread reads stdin or the network and appends to the ring buffer
@@ -430,13 +457,14 @@ void *Reader(void *arg)
 	exit(EXIT_FAILURE);
     }
 
-
 	// Read in a tmats file
 	int fd = open(tmats_fname, O_RDONLY); 
-	if (fd >= 0) {
-        read(fd, (char *)&fh, sizeof(fh));
+	struct stat st;
+	if (fstat(fd, &st) != -1){
+		tmatsbuffer = malloc(st.st_size);
+        read(fd, tmatsbuffer, st.st_size);
 		close(fd);
-		append((char *)&fh, sizeof(fh), 0);
+		append(tmatsbuffer, st.st_size, 0);
     }
     //
 
