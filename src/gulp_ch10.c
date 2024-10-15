@@ -176,7 +176,7 @@ int  warn_buf_full = 1;		/* unless reading a file, warn if buf fills */
 pcap_t *handle = 0;		/* packet capture handle */
 struct pcap_stat pcs;		/* packet capture filter stats */
 int got_stats = 0;		/* capture stats have been obtained */
-char *id = "@(#) axnmem 1.8.0"; /* version details above */
+char *id = "@(#) axnmem 2.0.0"; /* version details above */
 int  check_eth = 1;		/* check that we are capturing from an Ethernet device */
 int  would_block = 0;		/* for academic interest only */
 int  check_block = 0;		/* use select to see if writes would block */
@@ -200,7 +200,37 @@ char *zcmd = NULL;              /* processes each savefile using a specified com
 int  zflag = 0;
 static void child_cleanup(int); /* to avoid zombies, see below */
 char *tmatsbuffer;           /* Tmats file is read in and stored in a buffer */
- 
+ #define CHUNK_SIZE 40960  // Define the chunk size (4 KB in this case)
+
+
+/* Read in the TMATS file in chunks to save on memoruy */
+void read_file_in_chunks_and_append(const char *tmats_fname) {
+    int fd = open(tmats_fname, O_RDONLY);
+    if (fd == -1) {
+        fprintf(stderr, "Error opening file");
+        return;
+    }
+
+    char *buffer = malloc(CHUNK_SIZE);
+    if (!buffer) {
+        fprintf(stderr, "Memory allocation failed");
+        close(fd);
+        return;
+    }
+
+    ssize_t bytes_read;
+    while ((bytes_read = read(fd, buffer, CHUNK_SIZE)) > 0) {
+        // Process each chunk with append
+        append(buffer, bytes_read, 0);
+    }
+
+    if (bytes_read == -1) {
+        fprintf(stderr, "Error reading file");
+    }
+
+    free(buffer);
+    close(fd);
+}
 /*
  * put data onto the end of global ring buffer "buf"
  */
@@ -272,8 +302,7 @@ void append(char *ptr, int len, int bdry)
 				wrap_cnt = 0;
 				bdry_time = time(NULL);
 				time_split = 0;
-				//if (!just_copy)
-				//	append((char *)&fh, sizeof(fh), 0);
+				read_file_in_chunks_and_append(tmats_fname);
 			}
 		}
 
@@ -457,16 +486,9 @@ void *Reader(void *arg)
 	exit(EXIT_FAILURE);
     }
 
-	// Read in a tmats file
-	int fd = open(tmats_fname, O_RDONLY); 
-	struct stat st;
-	if (fstat(fd, &st) != -1){
-		tmatsbuffer = malloc(st.st_size);
-        read(fd, tmatsbuffer, st.st_size);
-		close(fd);
-		append(tmatsbuffer, st.st_size, 0);
-    }
-    //
+	/* Read in a tmats file */
+	read_file_in_chunks_and_append(tmats_fname);
+    
 
     /* now we can set our callback function */
     pcap_loop(handle, num_packets, got_packet, NULL);
