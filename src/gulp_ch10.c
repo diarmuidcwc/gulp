@@ -152,6 +152,9 @@
 #define RMEM_MAX "/proc/sys/net/core/rmem_max"		/* system tuning */
 #define RMEM_DEF "/proc/sys/net/core/rmem_default"	/* system tuning */
 #define RMEM_SUG 4194304				/* suggested value */
+#define CHUNK_SIZE 40960  /* Chunk size when  reading in the TMATS file */
+
+
 FILE *procf; int rmem_def=RMEM_SUG, rmem_max=RMEM_SUG;	/* check tuning */
 
 int  WriteSize = WRITESIZE;	/* desired size for aligned writes */
@@ -200,16 +203,74 @@ char *zcmd = NULL;              /* processes each savefile using a specified com
 int  zflag = 0;
 static void child_cleanup(int); /* to avoid zombies, see below */
 char *tmatsbuffer;           /* Tmats file is read in and stored in a buffer */
- #define CHUNK_SIZE 40960  // Define the chunk size (4 KB in this case)
+const int CH10_HDR_LEN = 24;
 
+/* Swap the byte for little endian ch10 header */
+void pack_uint32_le(char* buffer, size_t offset, uint32_t value) {
+    buffer[offset] = (value & 0xFF);          // LSB
+    buffer[offset + 1] = (value >> 8) & 0xFF; // 2nd byte
+    buffer[offset + 2] = (value >> 16) & 0xFF; // 3rd byte
+    buffer[offset + 3] = (value >> 24) & 0xFF; // MSB
+}
+
+void pack_uint16_le(char* buffer, size_t offset, uint16_t value) {
+    buffer[offset] = (value & 0xFF);          // LSB
+    buffer[offset + 1] = (value >> 8) & 0xFF; // 2nd byte
+}
+
+/* Get the chapter 10 header that can be used to wrap the TMATS file*/
+char* get_ch10_header(uint32_t payload_len, uint8_t sequence) {
+    // Allocate buffer size: 1 + 2 + 4 + 1 + 2 + 4 = 14 bytes for fields + 4 bytes for length
+    size_t buffer_size = CH10_HDR_LEN;
+	uint32_t sum = 0;
+
+    char* buffer = (char*)malloc(buffer_size);
+    if (!buffer) {
+        return NULL; // Memory allocation failed
+    }
+
+    // Populate the fields with example values
+    *((uint16_t*)(buffer)) = 0xEB25;     
+    *((uint16_t*)(buffer + 2)) = 0x0; 
+	pack_uint32_le(buffer, 4, payload_len + 24);
+	pack_uint32_le(buffer, 8, payload_len);
+	
+    buffer[12] = 0x05;                   // data type version
+    buffer[13] = sequence;                   // sequence
+    buffer[14] = 0x0;                   // flags
+    buffer[15] = 0x1;                   // data type
+    *((uint16_t*)(buffer + 16)) = 0x0;  // RTC
+    *((uint32_t*)(buffer + 18)) = 0x0;  // RTC
+	for (size_t i = 0; i < buffer_size; i += 2) {
+        // Read two bytes as a 16-bit word
+        uint16_t word = (uint8_t)buffer[i] + ((uint8_t)buffer[i + 1] << 8);
+        sum += word;
+        
+        // Handle overflow by wrapping around
+        if (sum > 0xFFFF) {
+            sum -= 0x10000; // Subtract 65536 (0x10000) to wrap around
+        }
+    }
+	pack_uint16_le(buffer, 22, (uint16_t)sum);
+
+    return buffer; // Return the populated buffer
+}
 
 /* Read in the TMATS file in chunks to save on memoruy */
-void read_file_in_chunks_and_append(const char *tmats_fname) {
+void wrap_and_append_tmats(const char *tmats_fname, uint8_t sequence) {
     int fd = open(tmats_fname, O_RDONLY);
     if (fd == -1) {
         fprintf(stderr, "Error opening file");
         return;
     }
+	struct stat st;
+    if (fstat(fd, &st) == -1) {
+        fprintf(stderr, "Error getting file size");
+        close(fd);
+        return;
+    }
+	// Stick a chapter 10 header onto the TMATS file
+	append(get_ch10_header(st.st_size, sequence), CH10_HDR_LEN, 0);
 
     char *buffer = malloc(CHUNK_SIZE);
     if (!buffer) {
@@ -302,7 +363,7 @@ void append(char *ptr, int len, int bdry)
 				wrap_cnt = 0;
 				bdry_time = time(NULL);
 				time_split = 0;
-				read_file_in_chunks_and_append(tmats_fname);
+				wrap_and_append_tmats(tmats_fname, (uint8_t) filec);
 			}
 		}
 
@@ -336,7 +397,8 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	const int FCS_LEN = 4;
 	const int OFFSET_TO_PAYLOAD = 14;
 	const int OFFSET_TO_DATA_TYPE = OFFSET_TO_PAYLOAD + 15;
-	const unsigned char CH10_DATA_TYPE_TIME = (unsigned char) 0x11;
+	const unsigned char CH10_DATA_TYPE_TIME_FMT0 = (unsigned char) 0x11;
+	const unsigned char CH10_DATA_TYPE_TIME_RESERVED = (unsigned char) 0x17;
 	int valid_file_boundary = 0;
 	if (ph.caplen >= OFFSET_TO_DATA_TYPE + FCS_LEN)  // Only chapter 10 packets
 	{ /* sanity test */
@@ -344,8 +406,8 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 		ph.caplen -= FCS_LEN;
 		ph.len -= FCS_LEN;
 		// Only spilt the files when aligned with a time packet
-		if (packet[OFFSET_TO_DATA_TYPE] == CH10_DATA_TYPE_TIME) {
-			fprintf(stderr, "Received a time packet");
+		if (packet[OFFSET_TO_DATA_TYPE] >= CH10_DATA_TYPE_TIME_FMT0 && packet[OFFSET_TO_DATA_TYPE] <= CH10_DATA_TYPE_TIME_RESERVED) {
+			//fprintf(stderr, "Received a time packet");
 			valid_file_boundary = 1;
 		} else {
 			valid_file_boundary = 0;
@@ -487,7 +549,7 @@ void *Reader(void *arg)
     }
 
 	/* Read in a tmats file */
-	read_file_in_chunks_and_append(tmats_fname);
+	wrap_and_append_tmats(tmats_fname, 0);
     
 
     /* now we can set our callback function */
