@@ -182,9 +182,7 @@ void append(char *ptr, int len, int bdry)
 	static int just_wrapped = 0;
 	static int wrap_cnt = 0;
 	int avail, used;
-	const int OFFSET_TO_PAYLOAD = 14;
 	static int warned = -1;
-	int crop_len = len - OFFSET_TO_PAYLOAD;
 	used = end - start;
 	if (used < 0)
 		used += ringsize;
@@ -192,7 +190,7 @@ void append(char *ptr, int len, int bdry)
 		maxbuffered = used;
 	avail = ringsize - used;
 
-	while (crop_len >= avail)
+	while (len >= avail)
 	{ /* ring buffer is full, wait */
 		if (warned < push)
 		{
@@ -208,30 +206,30 @@ void append(char *ptr, int len, int bdry)
 		if (eof)
 			return;
 	}
-	if (crop_len > 0 && crop_len < avail)
+	if (len > 0 && len < avail)
 	{ /* ring buffer space available */
 		if (bdry && (split_seconds != 0) && ((time(NULL) - bdry_time) >= split_seconds))
 		{
 			time_split = 1;
 		}
-		if (end + crop_len <= ringsize)
+		if (end + len <= ringsize)
 		{ /* no wrap to beginning needed */
-			memcpy(buf + end, ptr + OFFSET_TO_PAYLOAD, crop_len);
+			memcpy(buf + end, ptr, len);
 		}
 		else
 		{ /* append wraps */
 			int c = ringsize - end;
-			memcpy(buf + end, ptr + OFFSET_TO_PAYLOAD, c);
-			memcpy(buf, ptr + c + OFFSET_TO_PAYLOAD, crop_len - c);
+			memcpy(buf + end, ptr, c);
+			memcpy(buf, ptr + c, len - c);
 		}
-		if (end + crop_len >= ringsize)
+		if (end + len >= ringsize)
 		{
-			end += crop_len - ringsize;
+			end += len - ringsize;
 			just_wrapped = 1;
 		}
 		else
 		{
-			end += crop_len;
+			end += len;
 		}
 		if (time_split || (just_wrapped && bdry))
 		{
@@ -261,8 +259,8 @@ void append(char *ptr, int len, int bdry)
 				wrap_cnt = 0;
 				bdry_time = time(NULL);
 				time_split = 0;
-				if (!just_copy)
-					append((char *)&fh, sizeof(fh), 0);
+				//if (!just_copy)
+				//	append((char *)&fh, sizeof(fh), 0);
 			}
 		}
 	}
@@ -274,12 +272,13 @@ got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
     {
     struct pcap_pkthdr ph = *header;
 	const int FCS_LEN = 4;
-    if (ph.caplen >= FCS_LEN) {	/* sanity test */
+	const int OFFSET_TO_PAYLOAD = 14;  
+    if (ph.caplen >= OFFSET_TO_PAYLOAD+FCS_LEN) {	/* sanity test */
 	++captured;
 	ph.caplen -= FCS_LEN;
 	ph.len -= FCS_LEN;
-
-	append((char *)packet+gre_hdrlen, ph.caplen, 1);
+	// Removed the GRE header + FCS
+	append((char *)packet+gre_hdrlen+OFFSET_TO_PAYLOAD, ph.caplen-OFFSET_TO_PAYLOAD, 1);
 	}
     else ++ignored;
     }
