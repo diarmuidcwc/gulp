@@ -272,22 +272,24 @@ void append(char *ptr, int len, int bdry)
 	}
 }
 
+
 #ifndef JUSTCOPY
-void
-got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
-    {
-    struct pcap_pkthdr ph = *header;
+void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
+{
+	struct pcap_pkthdr ph = *header;
 	const int FCS_LEN = 4;
-	const int OFFSET_TO_PAYLOAD = 14;  
-    if (ph.caplen >= OFFSET_TO_PAYLOAD+FCS_LEN) {	/* sanity test */
-	++captured;
-	ph.caplen -= FCS_LEN;
-	ph.len -= FCS_LEN;
-	// Removed the GRE header + FCS
-	append((char *)packet+gre_hdrlen+OFFSET_TO_PAYLOAD, ph.caplen-OFFSET_TO_PAYLOAD, 1);
+	const int OFFSET_TO_PAYLOAD = 14;
+	if (ph.caplen >= OFFSET_TO_PAYLOAD + FCS_LEN)
+	{ /* sanity test */
+		++captured;
+		ph.caplen -= FCS_LEN;
+		ph.len -= FCS_LEN;
+		// Removed the GRE header + FCS
+		append((char *)packet + gre_hdrlen + OFFSET_TO_PAYLOAD, ph.caplen - OFFSET_TO_PAYLOAD, 1);
 	}
-    else ++ignored;
-    }
+	else
+		++ignored;
+}
 #endif /* JUSTCOPY */
 
 void
