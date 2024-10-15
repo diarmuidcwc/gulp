@@ -179,7 +179,7 @@ static void child_cleanup(int); /* to avoid zombies, see below */
  */
 void append(char *ptr, int len, int bdry)
 {
-	static int just_wrapped = 0;
+	static int will_wrap = 0;
 	static int wrap_cnt = 0;
 	int avail, used;
 	static int warned = -1;
@@ -212,31 +212,17 @@ void append(char *ptr, int len, int bdry)
 		{
 			time_split = 1;
 		}
-		if (end + len <= ringsize)
-		{ /* no wrap to beginning needed */
-			memcpy(buf + end, ptr, len);
-		}
-		else
-		{ /* append wraps */
-			int c = ringsize - end;
-			memcpy(buf + end, ptr, c);
-			memcpy(buf, ptr + c, len - c);
-		}
 		if (end + len >= ringsize)
 		{
-			end += len - ringsize;
-			just_wrapped = 1;
+			will_wrap = 1;
 		}
-		else
+		// Check if we are going to wrap and if so flag a new file
+		if (time_split || (will_wrap && bdry))
 		{
-			end += len;
-		}
-		if (time_split || (just_wrapped && bdry))
-		{
-			if (just_wrapped)
+			if (will_wrap)
 			{
 				wrap_cnt++;
-				just_wrapped = 0;
+				will_wrap = 0;
 			}
 			if (odir && (wrap_cnt >= split_after || time_split))
 			{
@@ -263,6 +249,26 @@ void append(char *ptr, int len, int bdry)
 				//	append((char *)&fh, sizeof(fh), 0);
 			}
 		}
+
+		if (end + len <= ringsize)
+		{ /* no wrap to beginning needed */
+			memcpy(buf + end, ptr, len);
+		}
+		else
+		{ /* append wraps */
+			int c = ringsize - end;
+			memcpy(buf + end, ptr, c);
+			memcpy(buf, ptr + c, len - c);
+		}
+		if (end + len >= ringsize)
+		{
+			end += len - ringsize;
+		}
+		else
+		{
+			end += len;
+		}
+		
 	}
 }
 
