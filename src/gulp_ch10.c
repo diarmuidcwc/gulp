@@ -177,77 +177,96 @@ static void child_cleanup(int); /* to avoid zombies, see below */
 /*
  * put data onto the end of global ring buffer "buf"
  */
-void
-append(char *ptr, int len, int bdry)
-    {
-    static int just_wrapped = 0;
-    static int wrap_cnt = 0;
-    int avail, used;
+void append(char *ptr, int len, int bdry)
+{
+	static int just_wrapped = 0;
+	static int wrap_cnt = 0;
+	int avail, used;
 	const int OFFSET_TO_PAYLOAD = 14;
-    static int warned = -1;
+	static int warned = -1;
 	int crop_len = len - OFFSET_TO_PAYLOAD;
-    used = end - start; if (used < 0) used += ringsize;
-    if (used > maxbuffered) maxbuffered = used;
-    avail = ringsize - used;
-
-    while (crop_len >= avail) {		/* ring buffer is full, wait */
-	if (warned<push) {
-	    warned = push;
-	    if (warn_buf_full)
-		fprintf(stderr, "%s: ring buffer full\n", progname);
-	    }
-	usleep(poll_usecs);
-	used = end - start; if (used < 0) used += ringsize;
+	used = end - start;
+	if (used < 0)
+		used += ringsize;
+	if (used > maxbuffered)
+		maxbuffered = used;
 	avail = ringsize - used;
-	if (eof) return;
-	}
-    if (crop_len > 0 && crop_len < avail) {	/* ring buffer space available */
-        if (bdry && (split_seconds != 0) && ((time(NULL) - bdry_time) >= split_seconds)) {
-	    time_split = 1;
-	    }
-	if (end + crop_len <= ringsize) {	  /* no wrap to beginning needed */
-	    memcpy(buf+end, ptr+OFFSET_TO_PAYLOAD, crop_len);
-	    }
-	else {				  /* append wraps */
-	    int c = ringsize-end;
-	    memcpy(buf+end, ptr+OFFSET_TO_PAYLOAD, c);
-	    memcpy(buf, ptr+c+OFFSET_TO_PAYLOAD, crop_len-c);
-	    }
-	if (end+crop_len >= ringsize) {
-	    end += crop_len-ringsize;
-	    just_wrapped = 1;
-	    }
-	else {
-	    end += crop_len;
-	    }
-	if (time_split || (just_wrapped && bdry)) {
-	    if (just_wrapped) {
-		wrap_cnt++;
-	    just_wrapped = 0;
-		}
-	    if (odir && (wrap_cnt >= split_after || time_split)) {
-		while (boundary >= 0) {	  /* last split still pending */
-		    if (warned<push) {
+
+	while (crop_len >= avail)
+	{ /* ring buffer is full, wait */
+		if (warned < push)
+		{
 			warned = push;
 			if (warn_buf_full)
-			    fprintf(stderr,"%s: ring buffer full\n", progname);
-			}
-		    usleep(poll_usecs);
-		    }
-		/*
-		 * Tell Writer to start a new file.  Boundary is now < 0 so
-		 * last split is complete.  Set boundary BEFORE appending file
-		 * header; the write can't happen until the data is appended.
-		 */
-		boundary = end;
-		wrap_cnt = 0;
-		bdry_time = time(NULL);
-		time_split = 0;
-		if (!just_copy) append((char *)&fh, sizeof(fh), 0);
+				fprintf(stderr, "%s: ring buffer full\n", progname);
 		}
-	    }
+		usleep(poll_usecs);
+		used = end - start;
+		if (used < 0)
+			used += ringsize;
+		avail = ringsize - used;
+		if (eof)
+			return;
 	}
-    }
+	if (crop_len > 0 && crop_len < avail)
+	{ /* ring buffer space available */
+		if (bdry && (split_seconds != 0) && ((time(NULL) - bdry_time) >= split_seconds))
+		{
+			time_split = 1;
+		}
+		if (end + crop_len <= ringsize)
+		{ /* no wrap to beginning needed */
+			memcpy(buf + end, ptr + OFFSET_TO_PAYLOAD, crop_len);
+		}
+		else
+		{ /* append wraps */
+			int c = ringsize - end;
+			memcpy(buf + end, ptr + OFFSET_TO_PAYLOAD, c);
+			memcpy(buf, ptr + c + OFFSET_TO_PAYLOAD, crop_len - c);
+		}
+		if (end + crop_len >= ringsize)
+		{
+			end += crop_len - ringsize;
+			just_wrapped = 1;
+		}
+		else
+		{
+			end += crop_len;
+		}
+		if (time_split || (just_wrapped && bdry))
+		{
+			if (just_wrapped)
+			{
+				wrap_cnt++;
+				just_wrapped = 0;
+			}
+			if (odir && (wrap_cnt >= split_after || time_split))
+			{
+				while (boundary >= 0)
+				{ /* last split still pending */
+					if (warned < push)
+					{
+						warned = push;
+						if (warn_buf_full)
+							fprintf(stderr, "%s: ring buffer full\n", progname);
+					}
+					usleep(poll_usecs);
+				}
+				/*
+				 * Tell Writer to start a new file.  Boundary is now < 0 so
+				 * last split is complete.  Set boundary BEFORE appending file
+				 * header; the write can't happen until the data is appended.
+				 */
+				boundary = end;
+				wrap_cnt = 0;
+				bdry_time = time(NULL);
+				time_split = 0;
+				if (!just_copy)
+					append((char *)&fh, sizeof(fh), 0);
+			}
+		}
+	}
+}
 
 #ifndef JUSTCOPY
 void
