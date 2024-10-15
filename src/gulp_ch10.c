@@ -94,7 +94,12 @@
 	This differs from the pcap implementation by creating a new file boundary in advance of 
 	writing a packet and by setting the file boundaries on time packets and not just any packet
 
-	TODO: Large TMATs files could cause RAM issues. This
+	This should always be run with a filter to select only the GRE wrapped packets
+	-f "ether proto 0x88b5" 
+	And wil the selected tmats file
+	-T <path_to_tmats>
+
+	
 */
  /*
 1.4 - base
