@@ -109,6 +109,9 @@
 1.6.1 - changed default filename to xxxxxx_000000.pcap
 1.7.0 - fixed small file at start of recording
 1.8.0 - add captured packet count and filename on status line
+1.9.0 - add support for big files
+1.10.0 - filter out time jump backwards
+1.10.1 - tweaks on implementation
 2.0.0 - This is a modified version of gulp1.8. 
  */
 
@@ -157,6 +160,7 @@
 #define RMEM_MAX "/proc/sys/net/core/rmem_max"		/* system tuning */
 #define RMEM_DEF "/proc/sys/net/core/rmem_default"	/* system tuning */
 #define RMEM_SUG 4194304				/* suggested value */
+#define _FILE_OFFSET_BITS 64  /* To generate files larger than 2GiB */
 #define CHUNK_SIZE 40960  /* Chunk size when  reading in the TMATS file */
 
 

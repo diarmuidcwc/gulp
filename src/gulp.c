@@ -78,6 +78,9 @@
 1.6.1 - changed default filename to xxxxxx_000000.pcap
 1.7.0 - fixed small file at start of recording
 1.8.0 - add captured packet count and filename on status line
+1.9.0 - add support for big files
+1.10.0 - filter out time jump backwards
+1.10.1 - tweaks on implementation
  */
 
 #define _GNU_SOURCE
@@ -125,6 +128,7 @@
 #define RMEM_MAX "/proc/sys/net/core/rmem_max"		/* system tuning */
 #define RMEM_DEF "/proc/sys/net/core/rmem_default"	/* system tuning */
 #define RMEM_SUG 4194304				/* suggested value */
+#define _FILE_OFFSET_BITS 64  /* To generate files larger than 2GiB */
 FILE *procf; int rmem_def=RMEM_SUG, rmem_max=RMEM_SUG;	/* check tuning */
 
 int  WriteSize = WRITESIZE;	/* desired size for aligned writes */
@@ -148,7 +152,7 @@ int  warn_buf_full = 1;		/* unless reading a file, warn if buf fills */
 pcap_t *handle = 0;		/* packet capture handle */
 struct pcap_stat pcs;		/* packet capture filter stats */
 int got_stats = 0;		/* capture stats have been obtained */
-char *id = "@(#) axnmem 1.8.0"; /* version details above */
+char *id = "@(#) axnmem 1.10.1"; /* version details above */
 int  check_eth = 1;		/* check that we are capturing from an Ethernet device */
 int  would_block = 0;		/* for academic interest only */
 int  check_block = 0;		/* use select to see if writes would block */
@@ -172,8 +176,33 @@ int  volatile reader_ready = 0;	/* reader thread no longer needs root */
 char *zcmd = NULL;              /* processes each savefile using a specified command */
 int  zflag = 0;
 static void child_cleanup(int); /* to avoid zombies, see below */
+struct timeval_32 {
+		int tv_sec;
+		int tv_usec;
+		};
+struct timeval_32 prev_ts = {.tv_sec = 0, .tv_usec = 0};
 
 
+struct timeval_32 get_timestamp(struct timeval cur_ts) {
+	// If the timestamps has jumped back less than 1sec, keep the previous timestamp
+	// otherwise accept whatever was returned by the pcap stack
+	struct timeval_32 new_ts = {.tv_sec = cur_ts.tv_sec, .tv_usec = cur_ts.tv_usec};
+
+	if (new_ts.tv_sec > prev_ts.tv_sec) {  
+		prev_ts = new_ts;
+		return new_ts;
+	} else if (new_ts.tv_sec < prev_ts.tv_sec) {
+		prev_ts = new_ts;
+		return new_ts;
+	} else {  // seconds match
+		if (new_ts.tv_usec < prev_ts.tv_usec) {
+			return prev_ts;
+		} else {
+			prev_ts = new_ts;
+			return new_ts;
+		}
+	}
+}
 /*
  * put data onto the end of global ring buffer "buf"
  */
@@ -266,19 +295,12 @@ got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 	 * structure define internally to libpcap, struct pcap_timeval,
 	 * with 32-bit tv_sec and tv_usec values.
 	 */
-	if (sizeof(long) > sizeof(int) && sizeof(int) > sizeof(short)) {
-	    struct timeval_32 {
-		int tv_sec;
-		int tv_usec;
-		} tv32;
-	    tv32.tv_sec = ph.ts.tv_sec;
-	    tv32.tv_usec= ph.ts.tv_usec;
-	    append((char *)&tv32, sizeof(tv32), 0);
-	    append((char *)&ph + sizeof(struct timeval),
-		   sizeof(struct pcap_pkthdr) - sizeof(struct timeval), 0);
-	    }
-	else
-	    append((char *)&ph, sizeof(struct pcap_pkthdr), 0);
+	struct timeval_32 tv32;
+	tv32 = get_timestamp(ph.ts);
+	append((char *)&tv32, sizeof(tv32), 0);
+	append((char *)&ph + sizeof(struct timeval),
+	sizeof(struct pcap_pkthdr) - sizeof(struct timeval), 0);
+
 	append((char *)packet+gre_hdrlen, ph.caplen, 1);
 	}
     else ++ignored;
