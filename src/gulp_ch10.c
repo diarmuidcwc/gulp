@@ -139,6 +139,7 @@ int  ringsize = RINGSIZE;	/* ring buffer size */
 int  gre_hdrlen = 0;		/* decapsulation header length */
 char *dev = "eth1";		/* capture interface device name */
 char *filter_exp = "";		/* decapsulation filter expression */
+char *tmats_fname = "";   /* The TMATS filename to read into the recording */
 char *buf;			/* pointer to the big malloc'd ring buffer */
 int  volatile start, end;	/* index of first, next byte in buf */
 int  volatile boundary = -2;	/* index in buf to start a new output file */
@@ -279,13 +280,23 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 	struct pcap_pkthdr ph = *header;
 	const int FCS_LEN = 4;
 	const int OFFSET_TO_PAYLOAD = 14;
-	if (ph.caplen >= OFFSET_TO_PAYLOAD + FCS_LEN)
+	const int OFFSET_TO_DATA_TYPE = OFFSET_TO_PAYLOAD + 15;
+	const unsigned char CH10_DATA_TYPE_TIME = (unsigned char) 0x11;
+	int valid_file_boundary = 0;
+	if (ph.caplen >= OFFSET_TO_DATA_TYPE + FCS_LEN)  // Only chapter 10 packets
 	{ /* sanity test */
 		++captured;
 		ph.caplen -= FCS_LEN;
 		ph.len -= FCS_LEN;
+		// Only spilt the files when aligned with a time packet
+		if (packet[OFFSET_TO_DATA_TYPE] == CH10_DATA_TYPE_TIME) {
+			//fprintf(stderr, "Received a time packet");
+			valid_file_boundary = 1;
+		} else {
+			valid_file_boundary = 0;
+		}
 		// Removed the GRE header + FCS
-		append((char *)packet + gre_hdrlen + OFFSET_TO_PAYLOAD, ph.caplen - OFFSET_TO_PAYLOAD, 1);
+		append((char *)packet + gre_hdrlen + OFFSET_TO_PAYLOAD, ph.caplen - OFFSET_TO_PAYLOAD, valid_file_boundary);
 	}
 	else
 		++ignored;
@@ -419,38 +430,12 @@ void *Reader(void *arg)
 	exit(EXIT_FAILURE);
     }
 
-    /*
-     * emit pcap file header
-     */
 
-#ifndef RHEL3
-    char tmpstr[] = "/tmp/gulp_hdr.XXXXXX";
-    int tmpfd = mkstemp(tmpstr);
-    if (tmpfd >= 0) {
-	pcap_dumper_t *dump = pcap_dump_fopen(handle, fdopen(tmpfd,"w"));
-	if (dump) pcap_dump_close(dump);
-	tmpfd = open(tmpstr, O_RDONLY);	/* get pcap to create a header */
-	if (tmpfd >= 0) read(tmpfd, (char *)&fh, sizeof(fh));
-	if (tmpfd >= 0) close(tmpfd);
-	unlink(tmpstr);
-	fh.snaplen = snap_len;		/* snaplen after any decapsulation */
-	}
-#endif /* RHEL3 */
-    if (fh.magic != 0xa1b2c3d4) {	/* if the above failed, do this */
-	fprintf(stderr, "%s: using canned pcap header\n", progname);
-	fh.magic = 0xa1b2c3d4;
-	fh.version_major = 2;
-	fh.version_minor = 4;
-	fh.thiszone = 0;
-	fh.sigfigs = 0;
-	fh.snaplen = snap_len;
-	fh.linktype = 1;
-	}
-
-	int fd = open("input.tmats", O_RDONLY); 
+	// Read in a tmats file
+	int fd = open(tmats_fname, O_RDONLY); 
 	if (fd >= 0) {
-        read(tmpfd, (char *)&fh, sizeof(fh));
-		close(tmpfd);
+        read(fd, (char *)&fh, sizeof(fh));
+		close(fd);
 		append((char *)&fh, sizeof(fh), 0);
     }
     //
@@ -759,6 +744,7 @@ usage() {
     "    and some of academic interest only:\n"
     "      -B\tcheck if select(2) would ever have blocked on write\n"
     "      -Y\tavoid writes which would block\n"
+    "      -T\tTMATS file to include in recording\n"
     "\n", progname);
     }
 
@@ -787,9 +773,9 @@ int main(int argc, char *argv[], char *envp[])
 
     if (argc > 1 && strcmp(argv[1], "--help") == 0) ++errflag; else
 #ifndef JUSTCOPY
-    while ((c = getopt(argc, argv, "BFXYcdqtvxf:i:p:r:s:z:V:o:n:C:G:W:Z:")) != EOF)
+    while ((c = getopt(argc, argv, "BFXYcdqtvxf:i:p:r:s:z:V:o:n:C:G:W:Z:T:")) != EOF)
 #else  /* JUSTCOPY */
-    while ((c = getopt(argc, argv, "BXYcqtvxp:r:z:V:o:n:C:G:W:Z:")) != EOF)
+    while ((c = getopt(argc, argv, "BXYcqtvxp:r:z:V:o:n:C:G:W:Z:T:")) != EOF)
 #endif /* JUSTCOPY */
 	{
 	switch (c) {
@@ -913,6 +899,9 @@ int main(int argc, char *argv[], char *envp[])
 	    case 'Z':
 		zcmd = optarg;
                 zflag = 1;
+		break;
+		case 'T':
+		tmats_fname = optarg;
 		break;
 	    default:
 		errflag++;
